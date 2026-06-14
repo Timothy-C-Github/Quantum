@@ -1,107 +1,214 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 """
-Created on Wed Nov 20 14:06:35 2024
+Hydrogen atom - analytical solution to the Schrodinger equation.
 
-@author: tacco
+Exact wavefunction using associated Laguerre polynomials (radial)
+and spherical harmonics (angular). Probability density evaluated on
+a spherical coordinate grid for accurate 3D visualization.
 """
 
-## Import statements, scipy.special provides all the special functions needed and visuals are through matplotlib 3D plotting
-import cmath
+import math
 import numpy as np
 import scipy.special as spec
 import matplotlib.pyplot as plt
-import math
+import matplotlib.gridspec as gridspec
 
-## Necessary Constants along with Units
+plt.style.use('dark_background')
 
-# Vacuum Permitivity/Permitivity of Free Space/Electric Constant | Units: F / m 
-e_0 = 8.854187818814 * 10 ** (-12)
-# Planck's Constant | Units: J / Hz
-planck = 6.62607015 * 10 ** (-34)
-# Reduced Planck's Constant | Units: J / Hz
-reduced_planck = planck / (2 * cmath.pi)
-# Electron Mass | Units: kg
-m_e = 9.109 * 10 ** (-31)
-# Proton Mass | Units: kg
-m_p = 1.6726219 * 10 ** (-27)
-# Reduced Mass/Inertial Mass | Units: kg
-mu = (m_e * m_p) / (m_e + m_p)
-# Elementary Charge | Units: Coulombs
-elementary_charge = 1.602176634 * 10 ** (-19)
-# Non-Reduced Bohr Radius | Units: m
-non_reduced_a_0 = (4 * cmath.pi * e_0 * reduced_planck ** 2)/(elementary_charge ** 2 * m_e)
-# Bohr Radius | Units: m
-a_0 = (4 * np.pi * e_0 * reduced_planck ** 2) / (mu * elementary_charge ** 2) # Reduced Bohr Radius
+## Physical constants (SI)
+e0   = 8.8541878128e-12          # vacuum permittivity   [F/m]
+hbar = 1.054571817e-34           # reduced Planck const  [J*s]
+m_e  = 9.1093837015e-31          # electron mass         [kg]
+m_p  = 1.67262192369e-27         # proton mass           [kg]
+mu   = m_e * m_p / (m_e + m_p)  # reduced mass          [kg]
+q_e  = 1.602176634e-19           # elementary charge     [C]
 
-## User-Inputted Data on Hydrogen State
+a_0    = 4*np.pi*e0*hbar**2 / (mu*q_e**2)        # Bohr radius [m]
+E_1_eV = -mu*q_e**4 / (8*e0**2*hbar**2) / q_e   # ground state energy [eV]
 
-# Principal Quantum Number/Shell Designator: Theoretically any natural number for n works but I have constrained the values to the highest named spectrum (Humphreys Series)
-n = int(input("What is the principal quantum number n? ")) 
-if n > 11:
-    raise Exception(ValueError("Invalid or Unnatural Excited State"))
-# Azimuthal Quantum Number/Orbital Angular Momentum/Subshell Designator: Has to always be within the range of 0 and n - 1
-l = int(input("What is the azimuthal quantum number l? ")) 
-if l >= n or l < 0:
-    raise Exception(ValueError("Invalid Subshell"))
-# Magnetic Quantum Number; projection of the angular momentum on the (arbitrarily chosen) z-axis: Can only be an integer at or between -l and l
-m = int(input("What is the magnetic quantum number m? "))
+## Quantum number input
+n = int(input("Principal quantum number n (1-11): "))
+if not 1 <= n <= 11:
+    raise ValueError(f"n must be 1-11, got {n}")
+
+l = int(input(f"Azimuthal quantum number l (0-{n-1}): "))
+if not 0 <= l < n:
+    raise ValueError(f"l must be 0-{n-1}, got {l}")
+
+m = int(input(f"Magnetic quantum number m ({-l}-{l}): "))
 if abs(m) > l:
-    raise Exception((ValueError("Invalid Magnetic Quantum Number")))
+    raise ValueError(f"|m| <= {l} required, got {m}")
 
-## Setting up solution to Schrodinger equation for Hydrogen atom
+## Wavefunction components
+norm = math.sqrt(
+    (2.0 / (n * a_0))**3
+    * math.factorial(n - l - 1)
+    / (2 * n * math.factorial(n + l))
+)
+L = spec.genlaguerre(n - l - 1, 2*l + 1)
 
-# Set r as dependent variable
-def rho(radius):
-    return (2 * np.array(radius) / (n * a_0))
 
-# Create a grid of theta and phi values for the solution space
-theta, phi = np.mgrid[0:2 * cmath.pi:100j, 0:2 * cmath.pi:100j]
+def radial(r):
+    rho = 2.0 * r / (n * a_0)
+    return norm * np.exp(-rho / 2.0) * rho**l * L(rho)
 
-# Create spherical harmonic (hypergeometric) functions
-GenLaguerre = spec.genlaguerre((n - l - 1), (2 * l + 1))
-Y = spec.sph_harm(m, l, phi, theta)
 
-# Initialize 3D plot
-fig = plt.figure()
-ax = fig.add_subplot(projection = '3d')
-ax.set_aspect("equal")
+def psi_sq_cart(x, y, z):
+    """Probability density |psi|^2 from Cartesian coordinates."""
+    r     = np.sqrt(x**2 + y**2 + z**2)
+    theta = np.arccos(np.clip(z / (r + 1e-300), -1.0, 1.0))
+    phi   = np.arctan2(y, x) % (2 * np.pi)
+    R_nl  = radial(r)
+    Y_lm  = spec.sph_harm_y(l, m, theta, phi)
+    return np.abs(R_nl * Y_lm)**2
 
-# Radius value to set for to measure Hydrogen atom electron | Units: m
-r = 6 * 10 ** (-9)
 
-# Transform coordinates from theta, phi to x, y, z
-x = r * np.cos(phi) * np.sin(theta)
-y = r * np.sin(phi) * np.sin(theta)
-z = r * np.cos(theta)
+## Grid setup
+# r_max captures all radial nodes with margin
+r_max = (n**2 + 5*n) * a_0
 
-# Input solution for each value in theta, phi grid
-psi = math.sqrt((2 / (n * a_0)) ** 3 * (math.factorial(n - l - 1)/(2 * n * math.factorial(n + l)))) * cmath.exp(-rho(r) / 2) * rho(r) ** l * GenLaguerre(rho(r)) * Y
+# 2D cross-sections (high resolution)
+x2 = np.linspace(-r_max, r_max, 500)
 
-# 3D plot is color-coded, so it actually represents 4 parameters instead of 3 with the 4th parameter being the observable probability (psi squared)
-intensities = (np.abs(psi) ** 2) / np.max(np.abs(psi) ** 2)
+Xxz, Zzz = np.meshgrid(x2, x2)
+d_xz = psi_sq_cart(Xxz, np.zeros_like(Xxz), Zzz)
 
-# Correcting data arrays
-x_flattened = np.ndarray.flatten(x)
-y_flattened = np.ndarray.flatten(y)
-z_flattened = np.ndarray.flatten(z)
-intensities_flattened = np.ndarray.flatten(intensities)
-indices_to_delete = np.where(intensities_flattened < 0.0)[0]
-x_filtered = np.delete(x_flattened, indices_to_delete)
-y_filtered = np.delete(y_flattened, indices_to_delete)
-z_filtered = np.delete(z_flattened, indices_to_delete)
-intensities_filtered = np.delete(intensities_flattened, indices_to_delete)
-x = np.reshape(x_filtered, [-1, 100])
-y = np.reshape(y_filtered, [-1, 100])
-z = np.reshape(z_filtered, [-1, 100])
-intensities = np.reshape(intensities_filtered, [-1, 100])
+Xxy, Yxy = np.meshgrid(x2, x2)
+d_xy = psi_sq_cart(Xxy, Yxy, np.zeros_like(Xxy))
 
-## Visualization of Schrodinger solution for Hydrogen
-# Setting axes and plotting for Hydrogen atom Schrodinger solution
-scatter = ax.scatter(x, y, z, c = intensities, cmap = 'viridis')
-plt.title("Probability of Finding Electron around Hydrogen Atom (Schrodinger)\nn = " + str(n) + "\nl = " + str(l) + "\nm = " + str(m) + "\nr = " + str(r) + " m")
-ax.set_xlabel("          x distance (m)")
-ax.xaxis.labelpad = -15
-# Add a color bar
-colorbar = plt.colorbar(scatter)
-colorbar.set_label('Relative Probability')
+# Radial probability distribution P(r) = r^2 * |R_nl(r)|^2
+r1d   = np.linspace(0, r_max, 3000)
+P_r   = r1d**2 * radial(r1d)**2
+
+# 3D probability cloud on a spherical grid for uniform angular coverage
+Nr, Nth, Nphi = 55, 70, 80
+r_s   = np.linspace(1e-12, r_max, Nr)
+th_s  = np.linspace(0, np.pi, Nth)
+phi_s = np.linspace(0, 2*np.pi, Nphi, endpoint=False)
+
+Rg, THg, PHIg = np.meshgrid(r_s, th_s, phi_s, indexing='ij')
+
+rho_g = 2.0 * Rg / (n * a_0)
+Rnl_g = norm * np.exp(-rho_g / 2.0) * rho_g**l * L(rho_g)
+Ylm_g = spec.sph_harm_y(l, m, THg, PHIg)
+d_sph = np.abs(Rnl_g * Ylm_g)**2
+
+Xsph = Rg * np.sin(THg) * np.cos(PHIg)
+Ysph = Rg * np.sin(THg) * np.sin(PHIg)
+Zsph = Rg * np.cos(THg)
+
+thresh = 0.015 * d_sph.max()
+mask   = d_sph > thresh
+xs = Xsph[mask] / a_0
+ys = Ysph[mask] / a_0
+zs = Zsph[mask] / a_0
+cs = d_sph[mask]
+
+## Figure
+fig = plt.figure(figsize=(16, 9))
+fig.patch.set_facecolor('#08080f')
+
+gs = gridspec.GridSpec(
+    2, 3, figure=fig,
+    hspace=0.42, wspace=0.32,
+    left=0.04, right=0.97, top=0.90, bottom=0.07
+)
+
+orbital_names = {0:'s', 1:'p', 2:'d', 3:'f', 4:'g', 5:'h', 6:'i', 7:'k', 8:'l'}
+lbl = f"{n}{orbital_names.get(l, '?')}"
+fig.suptitle(
+    f"Hydrogen Atom  |  {lbl} orbital    $(n={n},\\ l={l},\\ m={m})$",
+    fontsize=15, color='white', y=0.965, fontweight='bold'
+)
+
+# 3D probability cloud
+ax3d = fig.add_subplot(gs[:, 0], projection='3d')
+sc3d = ax3d.scatter(
+    xs, ys, zs, c=cs,
+    cmap='plasma', s=4, alpha=0.35, linewidths=0, rasterized=True
+)
+ax3d.set_xlabel('x / a0', fontsize=8, labelpad=-4)
+ax3d.set_ylabel('y / a0', fontsize=8, labelpad=-4)
+ax3d.set_zlabel('z / a0', fontsize=8, labelpad=-4)
+ax3d.tick_params(labelsize=6.5)
+ax3d.set_title('Probability cloud', fontsize=10, pad=6)
+for pane in (ax3d.xaxis.pane, ax3d.yaxis.pane, ax3d.zaxis.pane):
+    pane.fill = False
+    pane.set_edgecolor('#1e1e2e')
+ax3d.grid(True, color='#1e1e2e', alpha=0.6)
+cb3d = fig.colorbar(sc3d, ax=ax3d, fraction=0.028, pad=0.10, shrink=0.55)
+cb3d.set_label('|psi|^2', fontsize=8)
+cb3d.ax.tick_params(labelsize=6.5)
+
+# xz cross-section
+ext = r_max / a_0
+ax_xz = fig.add_subplot(gs[0, 1])
+im_xz = ax_xz.imshow(
+    d_xz, origin='lower', cmap='inferno',
+    extent=[-ext, ext, -ext, ext], aspect='equal'
+)
+ax_xz.set_xlabel('x / a0', fontsize=9)
+ax_xz.set_ylabel('z / a0', fontsize=9)
+ax_xz.set_title('xz cross-section  (y = 0)', fontsize=10)
+ax_xz.tick_params(labelsize=7)
+cb = fig.colorbar(im_xz, ax=ax_xz, fraction=0.046, pad=0.04)
+cb.ax.tick_params(labelsize=6.5)
+cb.set_label('|psi|^2', fontsize=8)
+
+# xy cross-section
+ax_xy = fig.add_subplot(gs[1, 1])
+im_xy = ax_xy.imshow(
+    d_xy, origin='lower', cmap='inferno',
+    extent=[-ext, ext, -ext, ext], aspect='equal'
+)
+ax_xy.set_xlabel('x / a0', fontsize=9)
+ax_xy.set_ylabel('y / a0', fontsize=9)
+ax_xy.set_title('xy cross-section  (z = 0)', fontsize=10)
+ax_xy.tick_params(labelsize=7)
+cb2 = fig.colorbar(im_xy, ax=ax_xy, fraction=0.046, pad=0.04)
+cb2.ax.tick_params(labelsize=6.5)
+cb2.set_label('|psi|^2', fontsize=8)
+
+# Radial probability distribution
+ax_r = fig.add_subplot(gs[0, 2])
+ax_r.plot(r1d / a_0, P_r * a_0, color='#ff6b9d', linewidth=1.8)
+ax_r.fill_between(r1d / a_0, P_r * a_0, alpha=0.22, color='#ff6b9d')
+ax_r.set_xlabel('r / a0', fontsize=9)
+ax_r.set_ylabel('P(r) * a0', fontsize=9)
+ax_r.set_title(r'Radial distribution  $r^2|R_{nl}|^2$', fontsize=10)
+ax_r.tick_params(labelsize=7)
+ax_r.set_xlim(0, r_max / a_0)
+ax_r.set_ylim(bottom=0)
+
+# State properties
+ax_info = fig.add_subplot(gs[1, 2])
+ax_info.set_facecolor('#0e0e1c')
+for sp in ax_info.spines.values():
+    sp.set_color('#2a2a4a')
+
+E_n    = E_1_eV / n**2
+r_mean = a_0 / 2 * (3*n**2 - l*(l+1))
+r_peak = r1d[np.argmax(P_r)]
+
+props = [
+    ("Orbital",       lbl),
+    ("Energy",        f"{E_n:.5f} eV"),
+    ("Radial nodes",  f"{n - l - 1}"),
+    ("Angular nodes", f"{l}"),
+    ("<r>",           f"{r_mean/a_0:.3f} a0"),
+    ("r_peak",        f"{r_peak/a_0:.3f} a0"),
+]
+
+ax_info.set_xlim(0, 1)
+ax_info.set_ylim(0, 1)
+ax_info.axis('off')
+for i, (key, val) in enumerate(props):
+    ax_info.text(0.06, 0.87 - i*0.145, f"{key}:", fontsize=9.5,
+                 color='#7b8ec8', family='monospace', transform=ax_info.transAxes)
+    ax_info.text(0.52, 0.87 - i*0.145, val, fontsize=9.5,
+                 color='#d0d8f0', family='monospace', transform=ax_info.transAxes)
+ax_info.set_title('State properties', fontsize=10)
+
+plt.savefig('hydrogen_schrodinger.png', dpi=150, bbox_inches='tight',
+            facecolor='#08080f')
 plt.show()
