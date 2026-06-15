@@ -1,0 +1,9 @@
+# Python dependencies for the hydrogen atom models.
+# Install with:  pip install -r requirements.txt
+
+numpy>=1.24
+# scipy 1.15 introduced scipy.special.sph_harm_y, used by the Schrodinger model.
+scipy>=1.15
+matplotlib>=3.7
+# mpmath provides the Meijer G-function used by the Uehling model.
+mpmath>=1.3
